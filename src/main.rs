@@ -1,4 +1,6 @@
-use bevy::{asset::AssetMetaCheck, prelude::*, scene::SceneInstanceReady};
+use bevy::{
+    asset::AssetMetaCheck, light::CascadeShadowConfigBuilder, prelude::*, scene::SceneInstanceReady,
+};
 use bevy_skein::SkeinPlugin;
 
 fn main() {
@@ -38,8 +40,31 @@ struct Character {
 }
 
 fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands.spawn(SceneRoot(asset_server.load(
+    commands.spawn((
+        Camera3d::default(),
+        Transform::from_xyz(0.7 * 10.0, 0.7 * 10.0, 1.0 * 10.0)
+            .looking_at(Vec3::new(0.0, 0.3, 0.0), Vec3::Y),
+    ));
+
+    commands.spawn((
+        DirectionalLight {
+            shadows_enabled: true,
+            ..default()
+        },
+        // This is a relatively small scene, so use tighter shadow
+        // cascade bounds than the default for better quality.
+        // We also adjusted the shadow map to be larger since we're
+        // only using a single cascade.
+        CascadeShadowConfigBuilder {
+            num_cascades: 1,
+            maximum_distance: 1.6,
+            ..default()
+        }
+        .build(),
+    ));
+
+    commands.spawn((SceneRoot(asset_server.load(
         // Change this to your exported gltf file
-        GltfAssetLabel::Scene(0).from_asset("demo.gltf"),
-    )));
+        GltfAssetLabel::Scene(0).from_asset("Untitled.glb"),
+    )),));
 }
