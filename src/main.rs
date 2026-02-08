@@ -1,8 +1,22 @@
+use crate::player::input::PlayerInput;
+use crate::player::spawn_player;
 use avian3d::prelude::*;
+use bevy::input::common_conditions::input_just_pressed;
+use bevy::window::{CursorGrabMode, CursorOptions};
 use bevy::{
     asset::AssetMetaCheck, light::CascadeShadowConfigBuilder, prelude::*, scene::SceneInstanceReady,
 };
+use bevy_ahoy::prelude::*;
+use bevy_enhanced_input::prelude::*;
 use bevy_skein::SkeinPlugin;
+
+#[derive(PhysicsLayer, Default)]
+enum CollisionLayer {
+    #[default]
+    Default,
+    Player,
+    Sensor,
+}
 
 fn main() {
     App::new()
@@ -16,22 +30,127 @@ fn main() {
             }),
             SkeinPlugin::default(),
             PhysicsPlugins::default(),
+            EnhancedInputPlugin,
+            AhoyPlugins::default(),
         ))
-        .add_observer(
-            // log the component from the gltf spawn
-            |ready: On<SceneInstanceReady>,
-             children: Query<&Children>,
-             characters: Query<&Character>| {
-                for entity in children.iter_descendants(ready.entity) {
-                    let Ok(character) = characters.get(entity) else {
-                        continue;
-                    };
-                    info!(?character);
-                }
-            },
-        )
+        .add_input_context::<PlayerInput>()
+        // .insert_skein_preset("DefaultCharacterController", CharacterController::default())
+        .add_observer(spawn_player)
         .add_systems(Startup, startup)
+        .add_systems(
+            Update,
+            (
+                capture_cursor.run_if(input_just_pressed(MouseButton::Left)),
+                release_cursor.run_if(input_just_pressed(KeyCode::Escape)),
+            ),
+        )
         .run();
+}
+
+pub mod player {
+    use crate::CollisionLayer;
+    use crate::player::input::PlayerInput;
+    use avian3d::prelude::*;
+    use bevy::prelude::*;
+    use bevy_ahoy::prelude::*;
+
+    pub fn spawn_player(
+        add: On<Add, PlayerSpawner>,
+        players: Query<Entity, With<Player>>,
+        spawner: Query<&Transform>,
+        camera: Single<Entity, With<Camera3d>>,
+        mut commands: Commands,
+    ) {
+        println!("are you even working??");
+        for player in players {
+            // Respawn the player on hot-reloads
+            commands.entity(player).despawn();
+        }
+        let Ok(transform) = spawner.get(add.entity).copied() else {
+            println!("Wah!");
+            return;
+        };
+        let player = commands.spawn((Player, transform)).id();
+        commands
+            .entity(camera.into_inner())
+            .insert(CharacterControllerCameraOf {
+                yank_speed: 80.0_f32.to_radians(),
+                ..CharacterControllerCameraOf::new(player)
+            });
+    }
+
+    #[derive(Component, Reflect)]
+    #[reflect(Component)]
+    #[require(
+    PlayerInput,
+    CharacterController {
+        acceleration_hz: 10.0,
+        air_acceleration_hz: 150.0,
+        speed: 6.0,
+        gravity: 23.0,
+        friction_hz: 4.0,
+        ..default()
+    },
+    RigidBody::Kinematic,
+    Collider::cylinder(0.7, 1.8),
+    CollisionLayers::new(
+        [CollisionLayer::Player],
+        LayerMask::ALL,
+    ),
+)]
+    pub struct Player;
+
+    #[derive(Component, Reflect)]
+    #[reflect(Component)]
+    pub struct PlayerSpawner;
+
+    pub mod input {
+        use bevy::ecs::lifecycle::HookContext;
+        use bevy::ecs::world::DeferredWorld;
+        use bevy::prelude::*;
+        use bevy_ahoy::prelude::*;
+        use bevy_enhanced_input::actions;
+        use bevy_enhanced_input::prelude::*;
+
+        #[derive(Component, Default)]
+        #[component(on_add = PlayerInput::on_add)]
+        pub struct PlayerInput;
+
+        impl PlayerInput {
+            pub fn on_add(mut world: DeferredWorld, ctx: HookContext) {
+                world
+                    .commands()
+                    .entity(ctx.entity)
+                    .insert(actions!(PlayerInput[
+
+                        (
+                            Action::<Movement>::new(),
+                            DeadZone::default(),
+                            Bindings::spawn((
+                                Cardinal::wasd_keys(),
+                                Axial::left_stick()
+                            ))
+                        ),
+                        (
+                            Action::<Jump>::new(),
+                            bindings![KeyCode::Space,  GamepadButton::South],
+                        ),
+                        (
+                            Action::<Crouch>::new(),
+                            bindings![KeyCode::ControlLeft, GamepadButton::LeftTrigger],
+                        ),
+                        (
+                            Action::<RotateCamera>::new(),
+                            Scale::splat(0.04),
+                            Bindings::spawn((
+                                Spawn(Binding::mouse_motion()),
+                                Axial::right_stick()
+                            ))
+                        ),
+                    ]));
+            }
+        }
+    }
 }
 
 #[derive(Component, Default, Reflect, Debug)]
@@ -42,12 +161,6 @@ struct Character {
 }
 
 fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands.spawn((
-        Camera3d::default(),
-        Transform::from_xyz(0.7 * 10.0, 0.7 * 10.0, 1.0 * 10.0)
-            .looking_at(Vec3::new(0.0, 0.3, 0.0), Vec3::Y),
-    ));
-
     commands.spawn((
         DirectionalLight {
             shadows_enabled: true,
@@ -65,8 +178,19 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
         .build(),
     ));
 
+    commands.spawn(Camera3d::default());
     commands.spawn((SceneRoot(asset_server.load(
         // Change this to your exported gltf file
         GltfAssetLabel::Scene(0).from_asset("Untitled.glb"),
     )),));
+}
+
+fn capture_cursor(mut cursor: Single<&mut CursorOptions>) {
+    cursor.grab_mode = CursorGrabMode::Locked;
+    cursor.visible = false;
+}
+
+fn release_cursor(mut cursor: Single<&mut CursorOptions>) {
+    cursor.visible = true;
+    cursor.grab_mode = CursorGrabMode::None;
 }
