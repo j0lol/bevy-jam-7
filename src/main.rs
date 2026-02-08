@@ -1,3 +1,4 @@
+use avian3d::prelude::*;
 use bevy::{
     asset::AssetMetaCheck, light::CascadeShadowConfigBuilder, prelude::*, scene::SceneInstanceReady,
 };
@@ -14,6 +15,7 @@ fn main() {
                 ..default()
             }),
             SkeinPlugin::default(),
+            PhysicsPlugins::default(),
         ))
         .add_observer(
             // log the component from the gltf spawn
