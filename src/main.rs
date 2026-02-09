@@ -1,5 +1,8 @@
+use std::f32::consts::PI;
+
 use crate::player::input::PlayerInput;
 use crate::player::spawn_player;
+use avian3d::math::Vector3;
 use avian3d::prelude::*;
 use bevy::input::common_conditions::input_just_pressed;
 use bevy::window::{CursorGrabMode, CursorOptions};
@@ -17,6 +20,10 @@ enum CollisionLayer {
     Player,
     Sensor,
 }
+
+#[derive(Component, Reflect)]
+#[reflect(Component)]
+pub struct Gun;
 
 fn main() {
     App::new()
@@ -36,15 +43,64 @@ fn main() {
         .add_input_context::<PlayerInput>()
         // .insert_skein_preset("DefaultCharacterController", CharacterController::default())
         .add_observer(spawn_player)
+        //.add_observer(gun_reparent)
         .add_systems(Startup, startup)
         .add_systems(
             Update,
             (
                 capture_cursor.run_if(input_just_pressed(MouseButton::Left)),
                 release_cursor.run_if(input_just_pressed(KeyCode::Escape)),
+                move_gun,
             ),
         )
         .run();
+}
+
+#[derive(Component)]
+struct ToReparent {
+    new_parent: Entity,
+}
+
+pub fn move_gun(
+    gun: Single<&mut Transform, (With<Gun>, Without<Camera3d>)>,
+    camera: Single<&Transform, (With<Camera3d>, Without<Gun>)>,
+) {
+    let mut gun_transform = gun.into_inner();
+    let cam_vec: &Transform = camera.into_inner();
+
+    let offset = vec3(-2.0, -1.0, -4.0);
+
+    let xx = cam_vec.local_x().as_vec3();
+    let yy = cam_vec.local_y().as_vec3();
+    let zz = cam_vec.local_z().as_vec3();
+    gun_transform.translation =
+        cam_vec.translation + (offset.x * xx) + (offset.y * yy) + (offset.z * zz);
+    gun_transform.rotation = cam_vec.rotation;
+    gun_transform.rotate_local_y(PI);
+}
+
+pub fn gun_reparent(
+    add: On<Add, Gun>,
+    // mut spawner: Query<&mut Transform>,
+    camera: Single<Entity, With<Camera3d>>,
+    mut commands: Commands,
+) {
+    // commands
+    //     .entity(camera.into_inner())
+    //     .insert_child(0, add.entity);
+
+    commands
+        .entity(add.entity)
+        .remove::<Transform>()
+        .insert(ChildOf(camera.into_inner()));
+    //.insert(Transform::default());
+
+    // let Ok(mut transform) = spawner.get_mut(add.entity) else {
+    //     println!("Wah!");
+    //     return;
+    // };
+
+    // transform.translation = vec3(-10.0, 0.0, 0.0);
 }
 
 pub mod player {
@@ -182,6 +238,10 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((SceneRoot(asset_server.load(
         // Change this to your exported gltf file
         GltfAssetLabel::Scene(0).from_asset("World.glb"),
+    )),));
+    commands.spawn((SceneRoot(asset_server.load(
+        // Change this to your exported gltf file
+        GltfAssetLabel::Scene(0).from_asset("Character.glb"),
     )),));
 }
 
